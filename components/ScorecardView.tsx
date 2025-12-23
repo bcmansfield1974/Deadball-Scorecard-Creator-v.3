@@ -278,14 +278,17 @@ const TeamSection: React.FC<{
             <h3 className="font-bold border-b-2 border-black mb-1 pb-2 text-sm uppercase leading-none tracking-tighter">{opponentName} Pitchers</h3>
             
             {/* Pitcher Rows: Starter info */}
-            <div className="grid grid-cols-[1fr_2.5rem_3rem_4rem_2.5rem] gap-1 text-[10px] items-center h-[2.3rem]">
+            {/* Modified Grid: Name(2fr), Throws, PD, Spacer(1fr), Traits */}
+            <div className="grid grid-cols-[2fr_2.5rem_3rem_1fr_4.5rem] gap-1 text-[10px] items-center h-[2.3rem]">
                 {showStarterRow ? (
                     <>
-                        <div className="font-bold px-1 text-[11px] leading-tight flex items-center pb-3 h-full">{starter.name}</div>
+                        <div className="font-bold px-1 text-[11px] leading-tight flex items-center pb-3 h-full truncate">{starter.name}</div>
                         <div className="text-center flex items-center justify-center pb-3 h-full">{starter.throws}</div>
                         <div className="text-center font-mono flex items-center justify-center pb-3 h-full">{starter.pitchDie}</div>
-                        <div className="text-[9px] px-1 leading-tight flex items-center justify-center pb-3 h-full">{Array.isArray(starter.traits) ? starter.traits.join(' ') : ''}</div>
-                        <div className="text-center flex items-center justify-center pb-3 h-full"></div>
+                        <div className="flex items-center justify-center pb-3 h-full px-2">
+                             <div className="w-full border-b border-gray-300 h-1"></div>
+                        </div>
+                        <div className="text-[9px] px-1 leading-tight flex items-center justify-center pb-3 h-full text-right">{Array.isArray(starter.traits) ? starter.traits.join(' ') : ''}</div>
                     </>
                 ) : (
                     <>
