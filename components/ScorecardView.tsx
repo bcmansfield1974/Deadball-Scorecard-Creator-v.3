@@ -286,7 +286,7 @@ const TeamSection: React.FC<{
                         <div className="text-center flex items-center justify-center pb-3 h-full">{starter.throws}</div>
                         <div className="text-center font-mono flex items-center justify-center pb-3 h-full">{starter.pitchDie}</div>
                         <div className="flex items-center justify-center pb-3 h-full px-2">
-                             <div className="w-full border-b border-gray-300 h-1"></div>
+                             {/* Blank Spacer for Notes */}
                         </div>
                         <div className="text-[9px] px-1 leading-tight flex items-center justify-center pb-3 h-full text-right">{Array.isArray(starter.traits) ? starter.traits.join(' ') : ''}</div>
                     </>
