@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Deadball Scorecard Creator (6 Tier Heroic Ladder)",
+  "description": "A web-based tool to generate Deadball RPG scorecards using real MLB data. supports historical games, manual matchups, and hypothetical series.",
+  "requestFramePermissions": []
+}
