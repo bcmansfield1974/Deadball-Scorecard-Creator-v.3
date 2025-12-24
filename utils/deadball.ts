@@ -334,15 +334,15 @@ export const getPitchDie = (era: number, year: number, isStarter: boolean): stri
     }
 
     // EXCEPTION: Reliever d20 Upgrade
-    // If a non-starting pitcher's ERA is more than 2.5 Standard Deviations from the mean (better/lower), 
+    // If a non-starting pitcher's ERA is more than 2.0 Standard Deviations from the mean (better/lower), 
     // they get an automatic upgrade to d20.
     if (!isStarter) {
-        const d20Cutoff = leagueAvg + (-2.5 * gameSigma);
+        const d20Cutoff = leagueAvg + (-2.0 * gameSigma);
         if (era <= d20Cutoff) return "d20";
     }
 
     // 2. Assign PD based on pitcher's ERA relative to the distribution (Percentile / Z-Score)
-    // Ladder: d12, d8, d4, d0, -d4, -d8
+    // Ladder: d12, d8, d4, d0, -d4, -d6
     
     // Top 5% (Better ERA) -> d12
     // Z <= -1.645
@@ -364,7 +364,7 @@ export const getPitchDie = (era: number, year: number, isStarter: boolean): stri
     // Z <= 1.645
     const cutoffMinusD4 = leagueAvg + (1.645 * gameSigma);
     
-    // Bottom 5% -> -d8
+    // Bottom 5% -> -d6
     // All remaining
 
     if (era <= cutoffD12) return "d12";
@@ -373,7 +373,7 @@ export const getPitchDie = (era: number, year: number, isStarter: boolean): stri
     if (era <= cutoffD0) return "d0";
     if (era <= cutoffMinusD4) return "-d4";
     
-    return "-d8";
+    return "-d6";
 };
 
 export const getPitcherTraits = (stats: PlayerStats['stat'], year: number, isStarter: boolean): string[] => {
