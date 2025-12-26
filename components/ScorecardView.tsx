@@ -484,11 +484,7 @@ const FatigueTracker = ({ games }: { games: ScorecardData[] }) => {
                      )})}
                 </div>
             </div>
-
-            <div className="mt-4 text-xs italic text-gray-700">
-                <p>Starters: must rest one day for every two innings pitched (max 4 rest days).</p>
-                <p>Relievers: 2+ days or 3+ innings pitched drops Pitch Die -1; must rest one day after pitching 3 days in a row.</p>
-            </div>
+            {/* Italic notes removed as requested */}
         </div>
     );
 
