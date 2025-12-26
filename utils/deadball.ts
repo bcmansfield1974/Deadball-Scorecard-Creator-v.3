@@ -500,17 +500,25 @@ export const constructRoster = (
             });
         } 
         
-        if ((!isPitcher || isTWP) && hStats) {
+        // Relaxed criteria: Allow players even without stats (for early season/preseason rosters)
+        if (!isPitcher || isTWP) {
             let effectivePos = p.primaryPosition.abbreviation;
             if (gamePositions.has(p.id)) {
                 effectivePos = gamePositions.get(p.id)!;
             }
             const resolvedPos = resolvePosition(effectivePos, p.id, stats.fielding);
             
+            // Create fallback empty stats object if hStats is undefined
+            const safeStats = hStats || {
+                gamesPlayed: 0, atBats: 0, hits: 0, doubles: 0, triples: 0, homeRuns: 0,
+                baseOnBalls: 0, hitByPitch: 0, sacFlies: 0, strikeOuts: 0, stolenBases: 0,
+                avg: ".000", obp: ".000", slg: ".000", ops: ".000"
+            };
+
             candidates.push({
                 id: p.id,
                 name: p.fullName,
-                stats: hStats,
+                stats: safeStats,
                 profile,
                 pos: resolvedPos
             });
@@ -559,11 +567,12 @@ export const constructRoster = (
         finalBullpen.push(cp);
     }
 
-    // 4. Remaining sorted by IP, take top 7
+    // 4. Remaining sorted by IP. 
+    // We do NOT slice here anymore. We want all eligible pitchers for the Fatigue Tracker.
+    // The ScorecardView handles slicing for the printed card (top 8), but the full list persists in data.
     bullpenPool.sort((a, b) => (b.ip || 0) - (a.ip || 0));
-    const relief = bullpenPool.slice(0, 7);
-    relief.forEach(p => p.role = 'RP');
-    finalBullpen.push(...relief);
+    bullpenPool.forEach(p => p.role = 'RP');
+    finalBullpen.push(...bullpenPool);
 
     candidates.forEach(c => {
         const h = Number(c.stats.hits || 0);

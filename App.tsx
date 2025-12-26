@@ -89,6 +89,10 @@ function App() {
   const [hypoAwayId, setHypoAwayId] = useState<number>(0);
   const [hypoHomeId, setHypoHomeId] = useState<number>(0);
   const [hypoSeriesLength, setHypoSeriesLength] = useState<number>(7);
+  
+  // Specific Lineup Dates for Hypothetical
+  const [hypoAwayDate, setHypoAwayDate] = useState('');
+  const [hypoHomeDate, setHypoHomeDate] = useState('');
 
   // Find Game State
   const [findDate, setFindDate] = useState('');
@@ -227,7 +231,8 @@ function App() {
           await generateHypotheticalSeries({
               awayId: t1.id, awayYear: y1, awayTeam: t1,
               homeId: t2.id, homeYear: y2, homeTeam: t2,
-              length: 7
+              length: 7,
+              awayDate: null, homeDate: null
           });
 
       } catch (e) {
@@ -562,11 +567,83 @@ function App() {
         setLoading(false);
     }
   };
+  
+  // Helper to fetch data for specific dates (lineups/starting pitchers)
+  const fetchSpecificGameData = async (teamId: number, dateStr: string) => {
+      try {
+          // Normalize date input to API friendly format if needed
+          let apiDate = dateStr.trim();
+          if (apiDate.length > 0) {
+            apiDate = apiDate.replace(/\s+/g, '/');
+          }
+          const games = await fetchSchedule(apiDate);
+          if (!games || games.length === 0) return null;
+          
+          // Find the game involving the requested team
+          const game = games.find((g: any) => g.teams.away.team.id === teamId || g.teams.home.team.id === teamId);
+          if (!game) return null;
+          
+          const box = await fetchBoxscore(game.gamePk);
+          if (!box) return null;
+          
+          const isAway = box.teams.away.team.id === teamId;
+          const teamBox = isAway ? box.teams.away : box.teams.home;
+          
+          // Extract Lineup
+          const getStartingLineup = (tb: any) => {
+            if (!tb?.players) return [];
+            const players = Object.values(tb.players) as any[];
+            return players
+                .filter(p => p.battingOrder && parseInt(p.battingOrder) % 100 === 0)
+                .sort((a, b) => parseInt(a.battingOrder) - parseInt(b.battingOrder))
+                .map(p => p.person.id);
+          };
+          const order = getStartingLineup(teamBox);
+          
+          // Extract Positions
+          const getGamePositions = (tb: any) => {
+              const map = new Map<number, string>();
+              if (!tb?.players) return map;
+              Object.values(tb.players).forEach((p: any) => {
+                 // Check if player actually played or was in lineup
+                 const hasBattingOrder = p.battingOrder !== undefined;
+                 const hasStats = (p.stats?.pitching?.gamesPlayed > 0) || (p.stats?.batting?.gamesPlayed > 0) || (p.stats?.fielding?.gamesPlayed > 0);
+                 if ((hasBattingOrder || hasStats) && p.person && p.position) {
+                     map.set(p.person.id, p.position.abbreviation);
+                 }
+              });
+              return map;
+          };
+          const positionMap = getGamePositions(teamBox);
+          
+          // Extract Starter
+          const starterId = teamBox.pitchers && teamBox.pitchers.length > 0 ? teamBox.pitchers[0] : undefined;
+
+          // Extract all players to ensure roster completeness (even if not in fullSeason roster)
+          const boxPlayers: any[] = [];
+          if (teamBox.players) {
+              Object.values(teamBox.players).forEach((p: any) => {
+                  boxPlayers.push({
+                      id: p.person.id,
+                      fullName: p.person.fullName,
+                      primaryPosition: p.position
+                  });
+              });
+          }
+          
+          return { order, starterId, positionMap, boxPlayers };
+          
+      } catch (e) {
+          console.warn("Could not fetch specific date lineup", e);
+          return null;
+      }
+  };
 
   const generateHypotheticalSeries = async (override?: { 
       awayId: number, awayYear: number, awayTeam: Team,
       homeId: number, homeYear: number, homeTeam: Team,
-      length: number 
+      length: number,
+      awayDate: string | null, homeDate: string | null
   }) => {
     // Resolve Configuration
     const aId = override ? override.awayId : hypoAwayId;
@@ -574,6 +651,8 @@ function App() {
     const hId = override ? override.homeId : hypoHomeId;
     const hYear = override ? override.homeYear : hypoHomeYear;
     const sLength = override ? override.length : hypoSeriesLength;
+    const aDate = override ? override.awayDate : hypoAwayDate;
+    const hDate = override ? override.homeDate : hypoHomeDate;
 
     if (!aId || !hId) return;
     setLoading(true);
@@ -581,29 +660,74 @@ function App() {
 
     try {
         // We need team info (names/venues)
-        // If override provided, use it. Else search from state lists (if loaded).
-        // For standard flow, hypoAwayTeams is populated. For random flow, we pass objects.
         let teamAInfo = override ? override.awayTeam : hypoAwayTeams.find(t => t.id === aId);
         let teamBInfo = override ? override.homeTeam : hypoHomeTeams.find(t => t.id === hId);
         
-        // If not passed and not in state list (edge case), try fetch?
-        // Assuming lists are populated in standard mode.
+        // Helper to format date for Roster Fetch (YYYY-MM-DD)
+        const formatRosterDate = (input: string | null) => {
+            if (!input) return undefined;
+            // Normalize spaces to slashes for Date parsing
+            const normalized = input.replace(/\s+/g, '/');
+            const d = new Date(normalized);
+            if (isNaN(d.getTime())) return undefined;
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const rosterADate = formatRosterDate(aDate);
+        const rosterBDate = formatRosterDate(hDate);
+
+        // 1. Fetch Specific Game Data FIRST (if dates exist)
+        // We do this first so we can merge players into the main roster list before fetching stats
+        let specificA = null;
+        let specificB = null;
         
-        const rosterA = await fetchRoster(aId, aYear);
+        if (aDate && aDate.length > 0) {
+            specificA = await fetchSpecificGameData(aId, aDate);
+            if (!specificA) setError(prev => prev + ` Could not find valid game for Team A on ${aDate}. Using season defaults.`);
+        }
+        if (hDate && hDate.length > 0) {
+            specificB = await fetchSpecificGameData(hId, hDate);
+            if (!specificB) setError(prev => prev + ` Could not find valid game for Team B on ${hDate}. Using season defaults.`);
+        }
+
+        // 2. Fetch Base Rosters (filtered by date if provided to ensure Fatigue Tracker accuracy)
+        const rosterA = await fetchRoster(aId, aYear, rosterADate);
+        const rosterB = await fetchRoster(hId, hYear, rosterBDate);
+
+        // 3. Merge Specific Game Players into Roster
+        // This ensures players in the lineup are available for roster construction, even if missed by the general roster fetch
+        if (specificA && specificA.boxPlayers) {
+             specificA.boxPlayers.forEach((p: any) => {
+                 if (!rosterA.find(r => r.id === p.id)) {
+                     rosterA.push(p);
+                 }
+             });
+        }
+        if (specificB && specificB.boxPlayers) {
+             specificB.boxPlayers.forEach((p: any) => {
+                 if (!rosterB.find(r => r.id === p.id)) {
+                     rosterB.push(p);
+                 }
+             });
+        }
+
+        // 4. Fetch Stats (now using the merged roster list)
         const statsA = await fetchPlayerDetails(rosterA.map(p => p.id), aYear);
         const winPctA = await fetchTeamRecord(aId, aYear);
 
-        const rosterB = await fetchRoster(hId, hYear);
         const statsB = await fetchPlayerDetails(rosterB.map(p => p.id), hYear);
         const winPctB = await fetchTeamRecord(hId, hYear);
-
+        
         const advObj = (winPctA > winPctB) ? 
-            { meta: { id: aId, name: teamAInfo?.name || '', year: aYear }, info: teamAInfo, roster: rosterA, stats: statsA } : 
-            { meta: { id: hId, name: teamBInfo?.name || '', year: hYear }, info: teamBInfo, roster: rosterB, stats: statsB };
+            { meta: { id: aId, name: teamAInfo?.name || '', year: aYear }, info: teamAInfo, roster: rosterA, stats: statsA, specific: specificA } : 
+            { meta: { id: hId, name: teamBInfo?.name || '', year: hYear }, info: teamBInfo, roster: rosterB, stats: statsB, specific: specificB };
             
         const disadvObj = (winPctA > winPctB) ? 
-            { meta: { id: hId, name: teamBInfo?.name || '', year: hYear }, info: teamBInfo, roster: rosterB, stats: statsB } : 
-            { meta: { id: aId, name: teamAInfo?.name || '', year: aYear }, info: teamAInfo, roster: rosterA, stats: statsA };
+            { meta: { id: hId, name: teamBInfo?.name || '', year: hYear }, info: teamBInfo, roster: rosterB, stats: statsB, specific: specificB } : 
+            { meta: { id: aId, name: teamAInfo?.name || '', year: aYear }, info: teamAInfo, roster: rosterA, stats: statsA, specific: specificA };
 
         const venueHomeAdv = getHistoricalVenue(advObj.meta.id, advObj.meta.year, advObj.info?.venue?.name);
         const venueAwayAdv = getHistoricalVenue(disadvObj.meta.id, disadvObj.meta.year, disadvObj.info?.venue?.name);
@@ -628,9 +752,24 @@ function App() {
             const awayObj = isAdvantageTeamHosting ? disadvObj : advObj;
 
             const isDH = calculateIsDH(homeObj.meta.name, homeObj.meta.year, 'regular');
+            
+            // Determine Batting Order
+            // If specific date found, use that order. Else empty (auto-gen).
+            const homeOrder = homeObj.specific ? homeObj.specific.order : [];
+            const awayOrder = awayObj.specific ? awayObj.specific.order : [];
+            
+            // Determine Starter
+            // Only force the specific starter for Game 1 (i=0) if provided.
+            const homeStarter = (i === 0 && homeObj.specific) ? homeObj.specific.starterId : undefined;
+            const awayStarter = (i === 0 && awayObj.specific) ? awayObj.specific.starterId : undefined;
+            
+            // Determine Positions
+            // Use map if available to ensure accurate fielding positions
+            const homePosMap = homeObj.specific ? homeObj.specific.positionMap : new Map();
+            const awayPosMap = awayObj.specific ? awayObj.specific.positionMap : new Map();
 
-            const homeTeamData = constructRoster(homeObj.roster, homeObj.stats.stats, homeObj.stats.profiles, homeObj.meta.year, [], isDH, undefined, true);
-            const awayTeamData = constructRoster(awayObj.roster, awayObj.stats.stats, awayObj.stats.profiles, awayObj.meta.year, [], isDH, undefined, true);
+            const homeTeamData = constructRoster(homeObj.roster, homeObj.stats.stats, homeObj.stats.profiles, homeObj.meta.year, homeOrder, isDH, homeStarter, true, homePosMap);
+            const awayTeamData = constructRoster(awayObj.roster, awayObj.stats.stats, awayObj.stats.profiles, awayObj.meta.year, awayOrder, isDH, awayStarter, true, awayPosMap);
 
             games.push({
                 awayTeam: {
@@ -865,6 +1004,11 @@ function App() {
                                         {hypoAwayTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                                     </select>
                                 </div>
+                                <div>
+                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Lineup Date (Optional)</label>
+                                    <input type="text" placeholder="MM DD YYYY" value={hypoAwayDate} onChange={e => setHypoAwayDate(e.target.value)} className="w-full border p-2 rounded bg-white" />
+                                    <p className="text-[10px] text-gray-500 mt-1">If set, uses batting order & Game 1 starter from this date.</p>
+                                </div>
                             </div>
                         </div>
 
@@ -881,6 +1025,11 @@ function App() {
                                         <option value="">Select Team</option>
                                         {hypoHomeTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                                     </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Lineup Date (Optional)</label>
+                                    <input type="text" placeholder="MM DD YYYY" value={hypoHomeDate} onChange={e => setHypoHomeDate(e.target.value)} className="w-full border p-2 rounded bg-white" />
+                                    <p className="text-[10px] text-gray-500 mt-1">If set, uses batting order & Game 1 starter from this date.</p>
                                 </div>
                             </div>
                         </div>
